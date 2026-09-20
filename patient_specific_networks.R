@@ -1,4 +1,4 @@
-setwd("/users/zhanglia/project3_workspace/code_dir/code_data")
+setwd("$PATH/code_dir/code_data")
 # read datasets
 rnaseq <- as.matrix(read.table("../raw_data/rnaseq.cct", header = TRUE, row.names = 1))
 methylation <- as.matrix(read.table("../raw_data/methylation.cct", header = TRUE, row.names = 1))
