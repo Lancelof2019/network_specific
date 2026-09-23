@@ -1,0 +1,17 @@
+Job ID: 1502698
+Node: rc4116
+CPUs: 19
+Memory requested: 300G
+Start time: Wed Sep 23 12:23:01 PM EEST 2026
+============================================
+null device 
+          1 
+RNA dimensions: 20051 497 
+Methylation dimensions: 20112 498 
+Mutation dimensions: 2675 498 
+SCNV dimensions: 24776 492 
+Total unique genes: 27685 
+Total unique patient/sample IDs: 498 
+Combined omics dimensions: 27685 genes x 1985 measurements
+Downloaded OmniPath interactions: 86189 
+Trying Ensembl mirror: www ...
