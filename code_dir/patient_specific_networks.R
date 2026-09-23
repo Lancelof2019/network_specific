@@ -2073,6 +2073,39 @@ saveRDS(
 )
 
 
+# Save the complete filtered edge table with permanent edge IDs
+saveRDS(
+  edges,
+  "../result_data/edges.rds"
+)
+
+
+# Save a compact edge ID -> source/target gene mapping
+edge_mapping <- edges[
+  ,
+  c(
+    "edge_id",
+    "source_genesymbol",
+    "target_genesymbol"
+  ),
+  drop = FALSE
+]
+
+
+saveRDS(
+  edge_mapping,
+  "../result_data/edge_mapping.rds"
+)
+
+
+# Also save the mapping as CSV for easy inspection outside R
+write.csv(
+  edge_mapping,
+  "../result_data/edge_mapping.csv",
+  row.names = FALSE
+)
+
+
 cat(
   "\nCorrelation results saved successfully.\n"
 )
