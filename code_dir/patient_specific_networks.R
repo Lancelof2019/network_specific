@@ -2073,39 +2073,6 @@ saveRDS(
 )
 
 
-# Save the complete filtered edge table with permanent edge IDs
-saveRDS(
-  edges,
-  "../result_data/edges.rds"
-)
-
-
-# Save a compact edge ID -> source/target gene mapping
-edge_mapping <- edges[
-  ,
-  c(
-    "edge_id",
-    "source_genesymbol",
-    "target_genesymbol"
-  ),
-  drop = FALSE
-]
-
-
-saveRDS(
-  edge_mapping,
-  "../result_data/edge_mapping.rds"
-)
-
-
-# Also save the mapping as CSV for easy inspection outside R
-write.csv(
-  edge_mapping,
-  "../result_data/edge_mapping.csv",
-  row.names = FALSE
-)
-
-
 cat(
   "\nCorrelation results saved successfully.\n"
 )
@@ -3174,7 +3141,237 @@ saveRDS(
 
 
 # ============================================================
-# 31. FINAL SUMMARY
+# 31. ENRICHMENT ANALYSIS
+# ============================================================
+
+MSigDB_Hallmark_2020 <-
+  read.delim(
+    
+    "../result_data/MSigDB_Hallmark_2020_table.txt",
+    
+    header = TRUE,
+    
+    sep = "\t",
+    
+    dec = "."
+  )
+
+
+# ============================================================
+# 32. FILTER SIGNIFICANT PATHWAYS
+# ============================================================
+
+MSigDB_Hallmark_2020 <-
+  MSigDB_Hallmark_2020[
+    
+    MSigDB_Hallmark_2020$Adjusted.P.value <
+      0.05,
+    
+    ,
+    
+    drop = FALSE
+  ]
+
+
+MSigDB_Hallmark_2020 <-
+  MSigDB_Hallmark_2020[
+    
+    order(
+      -MSigDB_Hallmark_2020$Combined.Score
+    ),
+    
+    ,
+    
+    drop = FALSE
+  ]
+
+
+# ============================================================
+# 33. EXTRACT OVERLAP AND GENE RATIO
+# ============================================================
+
+MSigDB_Hallmark_2020 <-
+  MSigDB_Hallmark_2020 %>%
+  
+  separate(
+    
+    Overlap,
+    
+    into = c(
+      "OverlapGenes",
+      "SetSize"
+    ),
+    
+    sep = "/"
+  ) %>%
+  
+  mutate(
+    
+    OverlapGenes =
+      as.numeric(
+        OverlapGenes
+      ),
+    
+    SetSize =
+      as.numeric(
+        SetSize
+      ),
+    
+    GeneRatio =
+      OverlapGenes /
+      SetSize
+  )
+
+
+# ============================================================
+# 34. TOP 8 PATHWAYS
+# ============================================================
+
+hallmark_top <-
+  MSigDB_Hallmark_2020 %>%
+  
+  arrange(
+    desc(
+      Combined.Score
+    )
+  ) %>%
+  
+  slice_head(
+    n = 8
+  )
+
+
+hallmark_top$Adjusted.P.value <-
+  signif(
+    hallmark_top$Adjusted.P.value,
+    3
+  )
+
+
+hallmark_top$Term <-
+  factor(
+    
+    hallmark_top$Term,
+    
+    levels =
+      rev(
+        hallmark_top$Term
+      )
+  )
+
+
+# ============================================================
+# 35. ENRICHMENT DOTPLOT
+# ============================================================
+
+enrichment_plot <-
+  ggplot(
+    
+    hallmark_top,
+    
+    aes(
+      
+      x =
+        GeneRatio,
+      
+      y =
+        Term,
+      
+      size =
+        OverlapGenes,
+      
+      color =
+        Adjusted.P.value
+    )
+  ) +
+  
+  geom_point() +
+  
+  scale_color_viridis_c(
+    
+    option =
+      "plasma",
+    
+    direction =
+      -1,
+    
+    labels =
+      scales::label_scientific(
+        digits = 2
+      )
+  ) +
+  
+  scale_size(
+    range = c(
+      3,
+      8
+    )
+  ) +
+  
+  labs(
+    
+    title =
+      "MSigDB Hallmark Pathway Enrichment of Network-Central Genes",
+    
+    x =
+      "Gene Ratio",
+    
+    y =
+      NULL,
+    
+    color =
+      "Adjusted p-value",
+    
+    size =
+      "Overlapping genes"
+  ) +
+  
+  theme_bw() +
+  
+  theme(
+    
+    plot.title =
+      element_text(
+        face = "bold"
+      ),
+    
+    axis.text.y =
+      element_text(
+        size = 8
+      )
+  )
+
+
+print(
+  enrichment_plot
+)
+
+
+# ============================================================
+# 36. SAVE ENRICHMENT PLOT
+# ============================================================
+
+ggsave(
+  
+  filename =
+    "../result_data/MSigDB_Hallmark_enrichment.pdf",
+  
+  plot =
+    enrichment_plot,
+  
+  width =
+    8,
+  
+  height =
+    5,
+  
+  units =
+    "in"
+)
+
+
+# ============================================================
+# 37. FINAL SUMMARY
 # ============================================================
 
 cat(
@@ -3225,4 +3422,520 @@ cat(
 
 cat(
   "========================================\n"
+)
+
+# ============================================================
+# Organize patient-specific networks
+#
+# Final structure:
+# patient_id | edge_id | source | target | edge_weight
+#
+# patient_id + edge_id uniquely identifies
+# one edge in one patient's specific network
+# ============================================================
+
+message("Organizing patient-specific networks...")
+
+
+# ------------------------------------------------------------
+# 1. Load objects if they are not already in memory
+# ------------------------------------------------------------
+
+if (!exists("patient_specific_correlations")) {
+  
+  patient_specific_correlations <- readRDS(
+    "~/project3_workspace/code_dir/result_data/patient_specific_correlations.rds"
+  )
+}
+
+if (!exists("edge_mapping")) {
+  
+  edge_mapping <- readRDS(
+    "~/project3_workspace/code_dir/result_data/edge_mapping.rds"
+  )
+}
+
+
+# ------------------------------------------------------------
+# 2. Basic checks
+# ------------------------------------------------------------
+
+message(
+  "patient_specific_correlations dimensions: ",
+  nrow(patient_specific_correlations),
+  " x ",
+  ncol(patient_specific_correlations)
+)
+
+message(
+  "edge_mapping dimensions: ",
+  nrow(edge_mapping),
+  " x ",
+  ncol(edge_mapping)
+)
+
+
+# Edge IDs are stored as row names
+edge_ids <- rownames(
+  patient_specific_correlations
+)
+
+if (is.null(edge_ids)) {
+  
+  stop(
+    "patient_specific_correlations does not contain edge IDs as row names."
+  )
+}
+
+
+# Required columns in edge_mapping
+required_edge_columns <- c(
+  "edge_id",
+  "source_genesymbol",
+  "target_genesymbol"
+)
+
+missing_edge_columns <- setdiff(
+  required_edge_columns,
+  colnames(edge_mapping)
+)
+
+if (length(missing_edge_columns) > 0) {
+  
+  stop(
+    "Missing columns in edge_mapping: ",
+    paste(
+      missing_edge_columns,
+      collapse = ", "
+    )
+  )
+}
+
+
+# ------------------------------------------------------------
+# 3. Check edge IDs are unique
+# ------------------------------------------------------------
+
+if (anyDuplicated(edge_mapping$edge_id) > 0) {
+  
+  stop(
+    "Duplicated edge_id values found in edge_mapping."
+  )
+}
+
+if (anyDuplicated(edge_ids) > 0) {
+  
+  stop(
+    "Duplicated edge IDs found in patient_specific_correlations."
+  )
+}
+
+
+# ------------------------------------------------------------
+# 4. Match edge_mapping to patient-specific correlations
+#    using edge_id
+# ------------------------------------------------------------
+
+edge_index <- match(
+  edge_ids,
+  edge_mapping$edge_id
+)
+
+if (any(is.na(edge_index))) {
+  
+  stop(
+    sum(is.na(edge_index)),
+    " edge IDs from patient_specific_correlations ",
+    "cannot be found in edge_mapping."
+  )
+}
+
+
+# Reorder edge_mapping so the edge order is exactly the same
+# as patient_specific_correlations
+
+edge_mapping_aligned <- edge_mapping[
+  edge_index,
+  ,
+  drop = FALSE
+]
+
+
+# Standardize names to:
+# edge_id | source | target
+
+edge_mapping_aligned <- data.frame(
+  
+  edge_id =
+    edge_mapping_aligned$edge_id,
+  
+  source =
+    edge_mapping_aligned$source_genesymbol,
+  
+  target =
+    edge_mapping_aligned$target_genesymbol,
+  
+  stringsAsFactors = FALSE
+)
+
+
+# Check alignment
+if (!identical(
+  edge_ids,
+  edge_mapping_aligned$edge_id
+)) {
+  
+  stop(
+    "Edge IDs are not correctly aligned."
+  )
+}
+
+
+message(
+  "All edge IDs matched successfully."
+)
+
+
+# ------------------------------------------------------------
+# 5. Identify patient IDs
+# ------------------------------------------------------------
+#
+# patient_specific_correlations contains:
+#
+# ref_correlation
+# ref_p_value
+#
+# patient1
+# patient1_p
+#
+# patient2
+# patient2_p
+# ...
+#
+# We ONLY need patient correlation columns,
+# because these values are the patient-specific edge weights.
+# ------------------------------------------------------------
+
+all_columns <- colnames(
+  patient_specific_correlations
+)
+
+
+patient_ids <- all_columns[
+  
+  !all_columns %in% c(
+    "ref_correlation",
+    "ref_p_value"
+  ) &
+    
+    !grepl(
+      "_p$",
+      all_columns
+    )
+]
+
+
+message(
+  "Number of patients detected: ",
+  length(patient_ids)
+)
+
+message(
+  "Number of edges per patient: ",
+  length(edge_ids)
+)
+
+
+# ------------------------------------------------------------
+# 6. Calculate expected final size
+# ------------------------------------------------------------
+
+number_of_patients <- length(
+  patient_ids
+)
+
+number_of_edges <- length(
+  edge_ids
+)
+
+expected_rows <-
+  number_of_patients *
+  number_of_edges
+
+
+message(
+  "Expected patient-edge rows: ",
+  format(
+    expected_rows,
+    big.mark = ","
+  )
+)
+
+
+# ------------------------------------------------------------
+# 7. Create one patient-specific network table
+#    for every patient
+# ------------------------------------------------------------
+#
+# Each patient's network contains:
+#
+# patient_id
+# edge_id
+# source
+# target
+# edge_weight
+#
+# edge_weight =
+# patient-specific correlation value
+# ------------------------------------------------------------
+
+patient_network_list <- vector(
+  "list",
+  number_of_patients
+)
+
+
+for (i in seq_along(patient_ids)) {
+  
+  patient_id <- patient_ids[i]
+  
+  
+  patient_network_list[[i]] <- data.frame(
+    
+    patient_id = rep(
+      patient_id,
+      number_of_edges
+    ),
+    
+    edge_id =
+      edge_mapping_aligned$edge_id,
+    
+    source =
+      edge_mapping_aligned$source,
+    
+    target =
+      edge_mapping_aligned$target,
+    
+    edge_weight =
+      as.numeric(
+        patient_specific_correlations[
+          ,
+          patient_id
+        ]
+      ),
+    
+    stringsAsFactors = FALSE
+  )
+  
+  
+  # Show progress every 25 patients
+  if (
+    i == 1 ||
+    i %% 25 == 0 ||
+    i == number_of_patients
+  ) {
+    
+    message(
+      "Processed patient ",
+      i,
+      " / ",
+      number_of_patients,
+      ": ",
+      patient_id
+    )
+  }
+}
+
+
+# ------------------------------------------------------------
+# 8. Combine all patient-specific networks
+#    into ONE long table
+# ------------------------------------------------------------
+
+message(
+  "Combining all patient-specific networks..."
+)
+
+
+patient_specific_network_edges <- do.call(
+  rbind,
+  patient_network_list
+)
+
+
+rownames(
+  patient_specific_network_edges
+) <- NULL
+
+
+# Remove temporary list
+rm(
+  patient_network_list
+)
+
+gc()
+
+
+# ------------------------------------------------------------
+# 9. Check final structure
+# ------------------------------------------------------------
+
+expected_columns <- c(
+  "patient_id",
+  "edge_id",
+  "source",
+  "target",
+  "edge_weight"
+)
+
+
+if (!identical(
+  colnames(patient_specific_network_edges),
+  expected_columns
+)) {
+  
+  stop(
+    "Final column structure is incorrect."
+  )
+}
+
+
+if (
+  nrow(patient_specific_network_edges) != expected_rows
+) {
+  
+  stop(
+    "Final number of rows does not match expected number."
+  )
+}
+
+
+# ------------------------------------------------------------
+# 10. Check patient_id + edge_id uniqueness
+# ------------------------------------------------------------
+#
+# edge_id alone repeats across patients.
+#
+# patient_id + edge_id should identify one
+# specific edge in one specific patient network.
+# ------------------------------------------------------------
+
+message(
+  "Checking patient network structure..."
+)
+
+
+patient_edge_counts <- table(
+  patient_specific_network_edges$patient_id
+)
+
+
+if (
+  any(
+    patient_edge_counts != number_of_edges
+  )
+) {
+  
+  stop(
+    "Some patients do not contain the expected number of edges."
+  )
+}
+
+
+message(
+  "Each patient has ",
+  number_of_edges,
+  " edges."
+)
+
+
+# ------------------------------------------------------------
+# 11. Show example
+# ------------------------------------------------------------
+
+message(
+  "Example patient-specific edges:"
+)
+
+print(
+  head(
+    patient_specific_network_edges,
+    10
+  )
+)
+
+
+# ------------------------------------------------------------
+# 12. Save final patient-specific edge table
+# ------------------------------------------------------------
+
+saveRDS(
+  
+  patient_specific_network_edges,
+  
+  "~/project3_workspace/code_dir/result_data/patient_specific_network_edges.rds",
+  
+  compress = FALSE
+)
+
+
+message(
+  "Saved:"
+)
+
+message(
+  "~/project3_workspace/code_dir/result_data/patient_specific_network_edges.rds"
+)
+
+
+# ------------------------------------------------------------
+# 13. Save aligned edge mapping separately
+# ------------------------------------------------------------
+
+saveRDS(
+  
+  edge_mapping_aligned,
+  
+  "~/project3_workspace/code_dir/result_data/edge_mapping_aligned.rds"
+)
+
+
+write.csv(
+  
+  edge_mapping_aligned,
+  
+  "~/project3_workspace/code_dir/result_data/edge_mapping_aligned.csv",
+  
+  row.names = FALSE
+)
+
+
+# ------------------------------------------------------------
+# 14. Final summary
+# ------------------------------------------------------------
+
+message(
+  "Patient-specific network organization completed successfully."
+)
+
+message(
+  "Number of patients: ",
+  number_of_patients
+)
+
+message(
+  "Edges per patient: ",
+  number_of_edges
+)
+
+message(
+  "Total patient-edge rows: ",
+  format(
+    nrow(patient_specific_network_edges),
+    big.mark = ","
+  )
+)
+
+message(
+  "Final columns: patient_id | edge_id | source | target | edge_weight"
 )
