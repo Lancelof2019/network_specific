@@ -1200,12 +1200,18 @@ cat(
 
 
 ############################################################
-# 25. FILTER EDGES BASED ON CORRELATION
+# 25. KEEP ALL EDGES WITH VALID CORRELATIONS
 ############################################################
 
-filter <- abs(
+# Keep every interaction with a valid finite correlation.
+# No absolute-correlation threshold is applied here.
+# This means weak negative, near-zero, and weak positive
+# correlations are all retained for the downstream
+# patient-specific network calculations.
+
+filter <- is.finite(
   interactions$correlation
-) > 0.1
+)
 
 
 interactions_filtered <- interactions[
@@ -1216,8 +1222,29 @@ interactions_filtered <- interactions[
 
 
 cat(
-  "Interactions with |correlation| > 0.1:",
+  "Interactions with valid finite correlations (no magnitude threshold):",
   nrow(interactions_filtered),
+  "\n"
+)
+
+
+cat(
+  "Correlation range retained:",
+  range(
+    interactions_filtered$correlation,
+    na.rm = TRUE
+  ),
+  "\n"
+)
+
+
+cat(
+  "Correlations between -0.3 and 0.3 retained:",
+  sum(
+    interactions_filtered$correlation >= -0.3 &
+      interactions_filtered$correlation <= 0.3,
+    na.rm = TRUE
+  ),
   "\n"
 )
 
@@ -1225,7 +1252,7 @@ cat(
 if (nrow(interactions_filtered) == 0) {
   
   stop(
-    "No interactions passed |correlation| > 0.1."
+    "No interactions with valid finite correlations were found."
   )
 }
 
@@ -2070,6 +2097,39 @@ saveRDS(
 saveRDS(
   patient_pvalue_matrix,
   "../result_data/patient_pvalue_matrix.rds"
+)
+
+
+# Save the complete filtered edge table with permanent edge IDs
+saveRDS(
+  edges,
+  "../result_data/edges.rds"
+)
+
+
+# Save a compact edge ID -> source/target gene mapping
+edge_mapping <- edges[
+  ,
+  c(
+    "edge_id",
+    "source_genesymbol",
+    "target_genesymbol"
+  ),
+  drop = FALSE
+]
+
+
+saveRDS(
+  edge_mapping,
+  "../result_data/edge_mapping.rds"
+)
+
+
+# Also save the mapping as CSV for easy inspection outside R
+write.csv(
+  edge_mapping,
+  "../result_data/edge_mapping.csv",
+  row.names = FALSE
 )
 
 
@@ -3141,237 +3201,7 @@ saveRDS(
 
 
 # ============================================================
-# 31. ENRICHMENT ANALYSIS
-# ============================================================
-
-MSigDB_Hallmark_2020 <-
-  read.delim(
-    
-    "../result_data/MSigDB_Hallmark_2020_table.txt",
-    
-    header = TRUE,
-    
-    sep = "\t",
-    
-    dec = "."
-  )
-
-
-# ============================================================
-# 32. FILTER SIGNIFICANT PATHWAYS
-# ============================================================
-
-MSigDB_Hallmark_2020 <-
-  MSigDB_Hallmark_2020[
-    
-    MSigDB_Hallmark_2020$Adjusted.P.value <
-      0.05,
-    
-    ,
-    
-    drop = FALSE
-  ]
-
-
-MSigDB_Hallmark_2020 <-
-  MSigDB_Hallmark_2020[
-    
-    order(
-      -MSigDB_Hallmark_2020$Combined.Score
-    ),
-    
-    ,
-    
-    drop = FALSE
-  ]
-
-
-# ============================================================
-# 33. EXTRACT OVERLAP AND GENE RATIO
-# ============================================================
-
-MSigDB_Hallmark_2020 <-
-  MSigDB_Hallmark_2020 %>%
-  
-  separate(
-    
-    Overlap,
-    
-    into = c(
-      "OverlapGenes",
-      "SetSize"
-    ),
-    
-    sep = "/"
-  ) %>%
-  
-  mutate(
-    
-    OverlapGenes =
-      as.numeric(
-        OverlapGenes
-      ),
-    
-    SetSize =
-      as.numeric(
-        SetSize
-      ),
-    
-    GeneRatio =
-      OverlapGenes /
-      SetSize
-  )
-
-
-# ============================================================
-# 34. TOP 8 PATHWAYS
-# ============================================================
-
-hallmark_top <-
-  MSigDB_Hallmark_2020 %>%
-  
-  arrange(
-    desc(
-      Combined.Score
-    )
-  ) %>%
-  
-  slice_head(
-    n = 8
-  )
-
-
-hallmark_top$Adjusted.P.value <-
-  signif(
-    hallmark_top$Adjusted.P.value,
-    3
-  )
-
-
-hallmark_top$Term <-
-  factor(
-    
-    hallmark_top$Term,
-    
-    levels =
-      rev(
-        hallmark_top$Term
-      )
-  )
-
-
-# ============================================================
-# 35. ENRICHMENT DOTPLOT
-# ============================================================
-
-enrichment_plot <-
-  ggplot(
-    
-    hallmark_top,
-    
-    aes(
-      
-      x =
-        GeneRatio,
-      
-      y =
-        Term,
-      
-      size =
-        OverlapGenes,
-      
-      color =
-        Adjusted.P.value
-    )
-  ) +
-  
-  geom_point() +
-  
-  scale_color_viridis_c(
-    
-    option =
-      "plasma",
-    
-    direction =
-      -1,
-    
-    labels =
-      scales::label_scientific(
-        digits = 2
-      )
-  ) +
-  
-  scale_size(
-    range = c(
-      3,
-      8
-    )
-  ) +
-  
-  labs(
-    
-    title =
-      "MSigDB Hallmark Pathway Enrichment of Network-Central Genes",
-    
-    x =
-      "Gene Ratio",
-    
-    y =
-      NULL,
-    
-    color =
-      "Adjusted p-value",
-    
-    size =
-      "Overlapping genes"
-  ) +
-  
-  theme_bw() +
-  
-  theme(
-    
-    plot.title =
-      element_text(
-        face = "bold"
-      ),
-    
-    axis.text.y =
-      element_text(
-        size = 8
-      )
-  )
-
-
-print(
-  enrichment_plot
-)
-
-
-# ============================================================
-# 36. SAVE ENRICHMENT PLOT
-# ============================================================
-
-ggsave(
-  
-  filename =
-    "../result_data/MSigDB_Hallmark_enrichment.pdf",
-  
-  plot =
-    enrichment_plot,
-  
-  width =
-    8,
-  
-  height =
-    5,
-  
-  units =
-    "in"
-)
-
-
-# ============================================================
-# 37. FINAL SUMMARY
+# 31. FINAL SUMMARY
 # ============================================================
 
 cat(
@@ -3939,3 +3769,4 @@ message(
 message(
   "Final columns: patient_id | edge_id | source | target | edge_weight"
 )
+
